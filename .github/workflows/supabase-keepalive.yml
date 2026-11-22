@@ -1,0 +1,34 @@
+# Keeps free-tier Supabase projects from auto-pausing (they pause after ~7 days with no requests).
+# One read per day through the public REST API. RLS returns no rows, but the request reaches the database.
+# A failed run makes GitHub email the account owner, so this doubles as a simple uptime alert.
+# Note: GitHub disables scheduled workflows after 60 days with no commits to the repo; re-enable in the Actions tab if that happens.
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily, 06:17 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ironmark
+            url: https://dovbrhtjdhsnstbzzzjz.supabase.co/rest/v1/scans?select=id&limit=1
+            key_secret: IRONMARK_SUPABASE_PUBLISHABLE_KEY
+    steps:
+      - name: Ping ${{ matrix.name }}
+        env:
+          KEY: ${{ secrets[matrix.key_secret] }}
+        run: |
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${{ matrix.url }}" -H "apikey: $KEY")
+            echo "attempt $attempt: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 20
+          done
+          echo "::error::${{ matrix.name }} Supabase did not answer 200 (paused or down?)"
+          exit 1
